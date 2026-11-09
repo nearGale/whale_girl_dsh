@@ -77,6 +77,9 @@ namespace WhaleLauncher
         private LocalConfiguration _localConfiguration;
         public Task<ApiResult> ReadConfigurationAsync(string path)
             => NodeRunning ? Api.Get(Url, path) : (_localConfiguration ??= new LocalConfiguration(BaseDir)).ReadAsync(path);
+
+        public Task<ApiResult> WriteConfigurationAsync(string path, string json)
+            => NodeRunning ? Api.Post(Url, path, json) : (_localConfiguration ??= new LocalConfiguration(BaseDir)).WriteAsync(path, json);
         public string DataDir { get; }
         public string LogPath { get; }
         public event Action<LogLine> Line;

@@ -5,7 +5,6 @@ using System.Text;
 using System.Windows;
 using System.Windows.Threading;
 using System.Threading;
-using System.Security.Cryptography;
 
 namespace WhaleLauncher
 {
@@ -28,13 +27,14 @@ namespace WhaleLauncher
             WaitForReplacedInstance();
             CleanupOldExes();
 
-            var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppContext.BaseDirectory.ToUpperInvariant())));
-            _instance = new Mutex(false, "Local\\WhaleGirlLauncher-" + identity);
+            // 全机只允许一份启动器（不按安装目录区分），避免开发版和打包版抢 8787 / 微信桥接。
+            // --voice-reply-job 在上面已提前返回，不占这把锁。
+            _instance = new Mutex(false, "Local\\WhaleGirlLauncher");
             try { _ownsInstance = _instance.WaitOne(0); }
             catch (AbandonedMutexException) { _ownsInstance = true; }
             if (!_ownsInstance)
             {
-                MessageBox.Show("鲸鲸已经在运行，请切回已有窗口。", "鲸鲸");
+                MessageBox.Show("已经有实例在启动中", AppBrand.Name);
                 Shutdown();
                 return;
             }
@@ -54,7 +54,7 @@ namespace WhaleLauncher
             base.OnExit(e);
         }
 
-        /// <summary>重启时带 --replace &lt;pid&gt;：等旧实例退出再继续，否则会弹「已经在运行」。</summary>
+        /// <summary>重启时带 --replace &lt;pid&gt;：等旧实例退出再继续，否则会弹「已经有实例在启动中」。</summary>
         private static void WaitForReplacedInstance()
         {
             try

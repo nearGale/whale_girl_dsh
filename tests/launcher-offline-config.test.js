@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { readSnapshot } = require('../src/services/launcherSnapshot');
+const { writeOps } = require('../src/services/launcherOfflineWrite');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-offline-'));
@@ -60,4 +61,33 @@ test('短进程只输出有效配置 JSON，不启动聊天服务；配置变化
   write(root, 'config.json', { persona: { name: '重新打开' } });
   assert.equal(read()['/api/persona'].persona.name, '重新打开');
   assert.equal(fs.existsSync(path.join(root, 'data/server-port.txt')), false);
+});
+
+test('未启动内核也能写入人设、称呼与 config 补丁，重读可见且不启服务', async (t) => {
+  const root = fixture(t);
+  write(root, 'config.json', { persona: { name: '旧名字', ownerName: '旧称呼' } });
+  const out = await writeOps(root, [
+    { path: '/api/persona', body: { name: '离线鲸鲸', personality: '离线性格', privateMaxChars: 160 } },
+    { path: '/api/settings', body: { userName: '离线主人' } },
+    { path: '/api/config', body: { patch: { 'persona.masterRoast': true, 'chat.emojiChance': 0.4 } } },
+  ], {});
+  assert.equal(out.ok, true);
+  const snapshot = readSnapshot(root, {});
+  assert.equal(snapshot['/api/persona'].persona.name, '离线鲸鲸');
+  assert.equal(snapshot['/api/persona'].persona.personality, '离线性格');
+  assert.equal(snapshot['/api/persona'].persona.privateMaxChars, 160);
+  assert.equal(snapshot['/api/settings'].userName, '离线主人');
+  assert.equal(snapshot['/api/config'].config.persona.masterRoast, true);
+  assert.equal(snapshot['/api/config'].config.chat.emojiChance, 0.4);
+  assert.equal(fs.existsSync(path.join(root, 'data/server-port.txt')), false);
+
+  const script = path.resolve(__dirname, '../src/services/launcherOfflineWrite.js');
+  const cli = JSON.parse(execFileSync(process.execPath, [script], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 15000,
+    input: JSON.stringify({ path: '/api/persona', body: { job: '离线职业' } }),
+  }));
+  assert.equal(cli.ok, true);
+  assert.equal(readSnapshot(root, {})['/api/persona'].persona.job, '离线职业');
 });

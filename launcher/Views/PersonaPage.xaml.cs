@@ -126,8 +126,9 @@ namespace WhaleLauncher.Views
             await LoadMemoryChatsAsync();
             _loaded = true;
             _loadedOnline = _sup.NodeRunning;
-            ConfigurationControls.SetReadOnly(Body, !_loadedOnline);
-            SaveState.Text = _loadedOnline ? "" : "已读取本地配置 · 启动内核后可修改";
+            // 人设/称呼/开关可离线读写本地文件；记忆清空仍要内核。
+            ConfigurationControls.SetReadOnly(Body, false);
+            SaveState.Text = _loadedOnline ? "" : "已读取本地配置 · 可不启动内核直接修改并保存";
             PresetSaved.Text = "";
         }
 
@@ -290,7 +291,7 @@ namespace WhaleLauncher.Views
             if (_loading) return;
             if (!(sender is CheckBox chk) || chk.Tag is not string key) return;
             var value = chk.IsChecked == true;
-            var res = await Api.Post(_sup.Url, "/api/features",
+            var res = await _sup.WriteConfigurationAsync("/api/features",
                 $"{{\"key\":\"{Api.Esc(key)}\",\"value\":{(value ? "true" : "false")}}}");
             SaveState.Text = res.Ok ? $"开关 {key} → {(value ? "开" : "关")}" : "开关保存失败：" + (res.Error.Length > 0 ? res.Error : res.Raw);
         }
@@ -365,7 +366,7 @@ namespace WhaleLauncher.Views
             await _saveGate.WaitAsync();
             try
             {
-            if (_loading || !_sup.NodeRunning) return;
+            if (_loading) return;
 
             int age = int.TryParse(TxtAge.Text.Trim(), out var a) ? Math.Clamp(a, 1, 120) : 23;
             int priv = int.TryParse(TxtPrivate.Text.Trim(), out var pv) ? Math.Clamp(pv, 40, 800) : 140;
@@ -401,7 +402,7 @@ namespace WhaleLauncher.Views
                 $"\"links\":{(ChkLinks.IsChecked == true ? "true" : "false")}" +
                 "}";
 
-            var res = await Api.Post(_sup.Url, "/api/persona", json);
+            var res = await _sup.WriteConfigurationAsync("/api/persona", json);
             if (!res.Ok)
             {
                 SaveState.Text = "保存失败：" + (res.Error.Length > 0 ? res.Error : res.Raw);
@@ -410,7 +411,7 @@ namespace WhaleLauncher.Views
 
             // 称呼（persona 接口不收，走 settings）；群聊规则统一在「设置 → 群聊」，这里不再写 config
             var owner = TxtOwner.Text.Trim();
-            var ownerResult = await Api.Post(_sup.Url, "/api/settings", $"{{\"userName\":\"{Api.Esc(owner)}\"}}");
+            var ownerResult = await _sup.WriteConfigurationAsync("/api/settings", $"{{\"userName\":\"{Api.Esc(owner)}\"}}");
             if (!ownerResult.Ok)
             {
                 SaveState.Text = "人设已保存，但称呼保存失败：" + ownerResult.Error;
@@ -423,7 +424,7 @@ namespace WhaleLauncher.Views
                 "\"persona.master.wxids\":" + Lines(TxtMasterWxids) + "," +
                 "\"chat.emojiChance\":" + emojiChance.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) +
                 "}}";
-            var configResult = await Api.Post(_sup.Url, "/api/config", patch);
+            var configResult = await _sup.WriteConfigurationAsync("/api/config", patch);
             if (!configResult.Ok)
             {
                 SaveState.Text = "人设与称呼已保存，但其他设置保存失败：" + configResult.Error;
@@ -440,9 +441,8 @@ namespace WhaleLauncher.Views
 
         private async void OnImportPreset(object sender, RoutedEventArgs e)
         {
-            if (!_sup.NodeRunning) { SaveState.Text = "请先启动内核，再导入预设。"; return; }
             if (!(CmbPreset.SelectedItem is PresetItem p)) return;
-            var res = await Api.Post(_sup.Url, "/api/persona/preset", $"{{\"id\":\"{Api.Esc(p.Id)}\"}}");
+            var res = await _sup.WriteConfigurationAsync("/api/persona/preset", $"{{\"id\":\"{Api.Esc(p.Id)}\"}}");
             if (!res.Ok)
             {
                 PresetSaved.Text = "导入失败：" + (res.Error.Length > 0 ? res.Error : res.Raw);

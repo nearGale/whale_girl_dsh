@@ -223,7 +223,16 @@ test('启动器重启用真实路径，并等旧实例退出再抢单实例锁',
   assert.match(main, /正在重启/, '更新完要自动重启，不能只留个提示');
   assert.ok(!/现在重启吗/.test(main), '不该再弹「现在重启吗」让用户点（以后没有 bat，全靠自动）');
   assert.match(main, /private bool RestartSelf\(out string error\)/, '重启失败要能回报给调用方');
-  assert.match(app, /WaitForReplacedInstance/, '新实例要先等旧实例退出，否则弹「已经在运行」');
+  assert.match(app, /WaitForReplacedInstance/, '新实例要先等旧实例退出，否则弹「已经有实例在启动中」');
   assert.match(app, /CleanupOldExes/, '启动时清理 *.old-*');
+  // 全机一把锁：不按安装目录区分，避免开发版与打包版各开一份抢端口/桥接
+  assert.match(app, /Local\\\\WhaleGirlLauncher"/, '单实例锁必须是全局名 Local\\WhaleGirlLauncher');
+  assert.ok(!/WhaleGirlLauncher-" \+ identity/.test(app) && !/WhaleGirlLauncher-"\s*\+/.test(app),
+    '不能再按 BaseDirectory 拼 mutex 名');
+  assert.match(app, /已经有实例在启动中/, '第二份启动器要弹这句');
+  assert.match(app, /AppBrand\.Name/, '单实例弹窗标题跟品牌走，安装包不能写死 Dev');
+  const brand = fs.readFileSync(path.join(root, 'launcher', 'AppBrand.cs'), 'utf8');
+  assert.match(brand, /WhaleLauncher\.csproj/, '用源码树里的 csproj 判断 Dev');
+  assert.match(brand, /鲸鲸Dev/, '源码树品牌名');
   assert.match(svc, /-ExeName/, '更新时要告诉脚本当前 exe 名');
 });

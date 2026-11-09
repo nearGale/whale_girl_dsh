@@ -121,11 +121,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const VERSION = require('../../package.json').version;
 
 class Bot {
-  constructor({ config, store, llm, logger, trace = null, now = () => new Date(), rng = Math.random, mockChunkDelayMs = 12, linkReader = null, calibration = null, version = VERSION }) {
+  constructor({ config, store, llm, logger, trace = null, now = () => new Date(), rng = Math.random, mockChunkDelayMs = 12, linkReader = null, calibration = null, version = VERSION, agentBridge = null }) {
     this.config = config;
     this.store = store;
     this.llm = llm;
     this.logger = logger;
+    // 可选：把主人消息接到本机 DeepSeek Harness session（见 src/services/agentBridge.js）
+    this.agentBridge = agentBridge;
     // 程序版本：环境块里要报给模型（问「你是什么版本」时不能瞎说）
     this.version = version;
     // 判定链落盘（src/core/trace.js）。测试/接口里可以不传，没有 trace 只是少一份证据。
@@ -596,7 +598,7 @@ class Bot {
     if (command && isGroup && !addressed && !slashCommand && !isMaster) command = null;
     if (command && isGroup && muted && command.type !== 'unmute') command = null;
     if (command) {
-      return this.runCommand({ command, msg, key, profile, state, now, nowMs, atMe });
+      return await this.runCommand({ command, msg, key, profile, state, now, nowMs, atMe });
     }
 
     // 4) 群聊里没被叫到就先不说话
@@ -737,26 +739,33 @@ class Bot {
       }
     }
 
-    // 群聊触发判定后再并行获取链接和搜索资料，避免无关消息消耗网络预算。
-    const linkUrls = (this.config.links && this.config.links.enabled === false)
-      ? [] : links.extractUrls(clean.text || '');
-    const linkTask = linkUrls.length ? this.readLink(linkUrls[0], key) : Promise.resolve('');
-    const searchResult = await searchService.search({
-      text: clean.text,
-      history: () => this.recentHeard({ msg, key }).filter(line => line !== clean.text),
-      llm: this.llm, config: this.config.websearch || {}, now: this.now(),
-      trace: (stage, data) => this.logger?.info('[search] stage=' + stage + ' ' + JSON.stringify(data)),
-    });
-    if (searchResult.status !== 'skipped') {
-      try {
-        this.store.appendEvent(key, {
-          type: 'web',
-          detail: String(clean.text || '').slice(0, 60),
-          status: searchResult.status,
-        });
-      } catch (err) { this.logger?.warn('[search] stage=record_failed ' + describeError(err)); }
+    // 已绑 Harness 的主人消息最终不走本机 LLM，联网/链接检索也省掉（省一次路由调用）。
+    const agentBound = Boolean(
+      this.agentBridge && isMaster && this.agentBridge.getBinding(key)
+    );
+    let linkText = '';
+    let searchResult = { status: 'skipped', text: '', reason: 'agent_bound' };
+    if (!agentBound) {
+      const linkUrls = (this.config.links && this.config.links.enabled === false)
+        ? [] : links.extractUrls(clean.text || '');
+      const linkTask = linkUrls.length ? this.readLink(linkUrls[0], key) : Promise.resolve('');
+      searchResult = await searchService.search({
+        text: clean.text,
+        history: () => this.recentHeard({ msg, key }).filter(line => line !== clean.text),
+        llm: this.llm, config: this.config.websearch || {}, now: this.now(),
+        trace: (stage, data) => this.logger?.info('[search] stage=' + stage + ' ' + JSON.stringify(data)),
+      });
+      if (searchResult.status !== 'skipped') {
+        try {
+          this.store.appendEvent(key, {
+            type: 'web',
+            detail: String(clean.text || '').slice(0, 60),
+            status: searchResult.status,
+          });
+        } catch (err) { this.logger?.warn('[search] stage=record_failed ' + describeError(err)); }
+      }
+      linkText = await linkTask;
     }
-    const linkText = await linkTask;
     msg.linkText = linkText;
     msg.webText = searchResult.text;
     msg.webSearchStatus = searchResult.status === 'skipped' ? '' : searchResult.status;
@@ -1318,12 +1327,69 @@ class Bot {
     return null;
   }
 
-  runCommand({ command, msg, key, profile, state, nowMs, atMe }) {
+  async runCommand({ command, msg, key, profile, state, nowMs, atMe }) {
     const g = this.config.group;
     const finish = (text, extra = {}) => ({ action: 'command', commandType: command.type, key, msg, atMe, text, reason: 'command', ...extra });
     const owner = isVerifiedOwner(this.config, msg);
+    const master = Boolean(msg.isMaster);
     if ((command.type === 'reset' || (msg.chatType === 'group' && ['mute', 'unmute'].includes(command.type))) && !owner) {
       return finish('这个操作仅限已绑定发送者 ID 的主人。', { commandType: 'permission_denied', reason: 'not_owner' });
+    }
+    if (command.type === 'dsh') {
+      if (!master) {
+        return finish('只有主人能切换 Harness 会话。', { commandType: 'permission_denied', reason: 'not_owner' });
+      }
+      if (!this.agentBridge) {
+        return finish('这个版本还没接上 Harness 桥接。');
+      }
+      const rawArg = String(command.arg || '').trim();
+      const [sub, ...rest] = rawArg.split(/\s+/);
+      const action = (sub || 'status').toLowerCase();
+      const restText = rest.join(' ').trim();
+      try {
+        if (action === 'status' || action === '') {
+          return finish(await this.agentBridge.statusText(key));
+        }
+        if (action === 'list' || action === 'ls') {
+          return finish(await this.agentBridge.listText());
+        }
+        if (action === 'off' || action === 'unbind') {
+          this.agentBridge.unbind(key);
+          return finish('已离开 Harness，之后按普通人设聊天。');
+        }
+        if (action === 'cancel') {
+          const bound = this.agentBridge.getBinding(key);
+          if (!bound) return finish('本会话还没绑定 Harness。');
+          await this.agentBridge.backend.cancel({ sessionId: bound.sessionId });
+          return finish('已请求取消当前 Harness 回合。');
+        }
+        if (action === 'use' || action === 'bind') {
+          const sel = restText || '';
+          if (!sel) return finish('用法：/dsh use <序号或会话id或标题关键字>');
+          const session = await this.agentBridge.resolveSession(sel);
+          if (!session) return finish(`找不到会话「${sel}」。先 /dsh list 看一眼。`);
+          this.agentBridge.bind(key, {
+            backend: 'harness',
+            sessionId: session.id,
+            sessionTitle: session.title || '',
+          });
+          return finish(`已绑定 Harness：${session.title || session.id}（${session.id}）。再说的话会进这个会话。`);
+        }
+        if (action === 'new' || action === 'create') {
+          const wsPath = restText || '';
+          if (!wsPath) return finish('用法：/dsh new <已存在的本地目录路径>（权限：读写本工作区）');
+          const created = await this.agentBridge.createAndBind(key, wsPath, { permission: 'workspace-write' });
+          return finish(
+            `已新建并绑定 Harness 会话 ${created.sessionId}\n` +
+            `工作区：${created.path}\n` +
+            `权限：读写本工作区（workspace-write）。再说的话会进这个会话。`
+          );
+        }
+        return finish('用法：/dsh status | list | use <id> | new <路径> | off | cancel');
+      } catch (err) {
+        this.logger && this.logger.warn('[dsh] ' + describeError(err));
+        return finish(String((err && err.message) || 'Harness 操作失败'));
+      }
     }
     switch (command.type) {
       case 'help':
@@ -1850,6 +1916,21 @@ class Bot {
         text = decision.canned;
       } else if (decision.mock) {
         text = decision.text;
+      } else if (
+        this.agentBridge
+        && decision.msg
+        && decision.msg.isMaster
+        && this.agentBridge.getBinding(decision.key)
+      ) {
+        // 主人已把本 chat 绑到 Harness：跳过人设 LLM，把原文丢给 Agent
+        const userText = String((decision.msg.text || decision.cleanText || '')).trim();
+        try {
+          const agentOut = await this.agentBridge.promptForChat(decision.key, userText, { signal });
+          text = agentOut && agentOut.text ? agentOut.text : '（Harness 无回复）';
+        } catch (err) {
+          this.logger && this.logger.warn('[agent] prompt 失败：' + describeError(err));
+          text = String((err && err.message) || 'Harness 调用失败');
+        }
       } else {
         text = await this.llm.complete({ system: decision.system, turns: decision.turns, signal });
         // 模型有时候只会把别人说过的话复读一遍，或者重复自己上一句，这种重写一次

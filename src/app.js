@@ -27,6 +27,10 @@ const probe = require('./infra/probe');
 const { ContactsCache } = require('./services/contacts');
 const { ReminderService } = require('./services/reminderService');
 const locationProbe = require('./services/location');
+const { createAgentBridge } = require('./services/agentBridge');
+const { createHarnessBackend } = require('./adapters/harness');
+const { createCursorStub } = require('./adapters/agentBackend');
+const { loadSettings } = require('./infra/config');
 
 const VERSION = require('../package.json').version;
 
@@ -130,7 +134,34 @@ function createRuntime({ root = path.resolve(__dirname, '..'), env = process.env
     raw: Boolean(config.log && config.log.traceRaw !== false),
   });
   runtime.trace = trace;
-  runtime.bot = new Bot({ config, store, llm: runtime.llm, logger: child('pipeline'), trace, version: VERSION });
+  // Harness Agent 桥：主人 /dsh 绑定后，消息进本机 DeepSeek Harness（Cursor stub 二期）
+  try {
+    const settings = loadSettings(config) || {};
+    const harnessCfg = (config.harness && typeof config.harness === 'object') ? config.harness : {};
+    const baseUrl = String(settings.harnessBaseUrl || harnessCfg.baseUrl || process.env.DSH_URL || '').trim();
+    const harness = createHarnessBackend({
+      baseUrl,
+      authSecret: settings.harnessAuthSecret || harnessCfg.authSecret || process.env.DSH_AUTH_SECRET || '',
+    });
+    runtime.agentBridge = createAgentBridge({
+      root,
+      backend: harness,
+      logger: child('agent'),
+    });
+    runtime.agentBackends = { harness, cursor: createCursorStub() };
+  } catch (err) {
+    logger.warn('Agent 桥未启用：' + describeError(err));
+    runtime.agentBridge = null;
+  }
+  runtime.bot = new Bot({
+    config,
+    store,
+    llm: runtime.llm,
+    logger: child('pipeline'),
+    trace,
+    version: VERSION,
+    agentBridge: runtime.agentBridge,
+  });
   // 本机所在地：后台探一次（Windows 定位服务优先，挂 VPN 也准），之后定期刷新。
   // 只放在内存里，给 <env> 块用；关掉 features.envContext 或 env.autoDetect=false 就完全不动。
   try {

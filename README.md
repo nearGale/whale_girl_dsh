@@ -179,6 +179,10 @@ The installed edition is configured in the launcher's **Settings** page. Advance
 
 Everything else is documented in the settings reference under [`docs/`](docs/).
 
+### Connecting an IDE (DeepSeek Harness / Cursor)
+
+The owner can bind a WeChat chat to a local **DeepSeek Harness** agent session with `/dsh` (list / use / off). Cursor is stubbed for a later phase. Setup, commands and troubleshooting: [`docs/连接IDE.md`](docs/连接IDE.md) (Chinese).
+
 ---
 
 ## Project structure

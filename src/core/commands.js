@@ -8,6 +8,7 @@
 const COMMAND_HELP = [
   '咕噜~ 人家会的：聊天、记住你说过的事、被 @ 的时候浮上来说话。',
   '小命令：/remember 记住：xxx；/forget 忘掉自己记下的 xxx；/help 再看一遍。/reset 仅已绑定 ID 的主人可用；群聊 /mute、/unmute 也仅限主人。',
+  '主人还可：/dsh list、/dsh use <会话>、/dsh new <目录>、/dsh off、/dsh status（接本机 DeepSeek Harness）。',
 ].join('\n');
 
 /** 从文本里识别命令；返回 {type, arg} 或 null */
@@ -27,6 +28,7 @@ function extractCommand(text) {
       remember: 'remember', '记住': 'remember',
       name: 'name', '名字': 'name',
       status: 'status', '状态': 'status',
+      dsh: 'dsh', harness: 'dsh',
     };
     if (map[cmd]) return { type: map[cmd], arg, raw };
     return null;

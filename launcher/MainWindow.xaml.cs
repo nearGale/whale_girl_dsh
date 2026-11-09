@@ -50,6 +50,10 @@ namespace WhaleLauncher
         {
             InitializeComponent();
 
+            // 源码树跑 → 鲸鲸Dev；安装包（无 launcher/*.csproj）→ 鲸鲸
+            Title = AppBrand.Name;
+            BrandText.Text = AppBrand.Name;
+
             var dir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             _sup = new RuntimeSupervisor(dir);
 

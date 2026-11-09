@@ -44,7 +44,7 @@
                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
 
-                    <TextBlock Text="鲸鲸" FontSize="15" FontWeight="Bold"
+                    <TextBlock x:Name="BrandText" Text="鲸鲸" FontSize="15" FontWeight="Bold"
                                Foreground="{DynamicResource Text}" Margin="11,0,0,0" VerticalAlignment="Center" />
 
                     <Border Background="{DynamicResource Surface3}" CornerRadius="6" Padding="7,3"

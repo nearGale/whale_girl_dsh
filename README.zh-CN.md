@@ -178,6 +178,10 @@
 
 其余配置见 [docs/设置说明.md](docs/设置说明.md)。
 
+### 连接 IDE（DeepSeek Harness / Cursor）
+
+主人可用 `/dsh`（含 `/dsh new <目录>` 新建读写工作区会话）把当前微信会话绑到本机 **DeepSeek Harness** 的 Agent session：消息进 IDE，最终文字回微信。Cursor 后端一期仅预留接口。配置 `harness.baseUrl`、查端口、指令与排错见 [docs/连接IDE.md](docs/连接IDE.md)。
+
 ---
 
 ## 目录结构

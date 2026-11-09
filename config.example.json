@@ -6,6 +6,10 @@
     "host": "127.0.0.1",
     "port": 8787
   },
+  "harness": {
+    "_说明": "本机 DeepSeek Harness Agent 桥。baseUrl 填 Host 地址，例如 http://127.0.0.1:53721（桌面版端口常为随机，用 netstat 看 DeepSeek Harness.exe 的 LISTENING）；凭证默认读 %USERPROFILE%\\.dsh\\.credentials.yaml，也可用环境变量 DSH_AUTH_SECRET。主人微信里 /dsh list|use|off",
+    "baseUrl": ""
+  },
   "deepseek": {
     "_说明": "老版本的模型配置，现在一般不用改这里——Key 建议在启动器「设置」里填（存 data/settings.json）。这里留空也行",
     "provider": "deepseek",

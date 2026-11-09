@@ -2,6 +2,27 @@
 
 ## 4.0.8
 
+### 改进 · 人设页可不启动内核直接改
+
+- 人设、称呼、功能开关与预设导入改为离线读写本地配置；记忆列表/清空仍需启动内核。
+
+### 改进 · 启动器全机单实例
+
+- 单实例锁改为全机共用（不再按安装目录区分），开发版与打包版不能同时开两份。
+- 第二份启动时弹窗：「已经有实例在启动中」。
+
+### 改进 · 开发版窗口标题
+
+- 在源码树运行时窗口/顶栏显示「鲸鲸Dev」；安装包目录没有 `launcher/*.csproj`，仍显示「鲸鲸」。
+
+### 新增 · DeepSeek Harness Agent 桥
+
+- 主人可用 `/dsh list` / `/dsh use <会话>` / `/dsh new <本地目录>` / `/dsh off` / `/dsh status` / `/dsh cancel`，把当前微信会话绑到本机 DeepSeek Harness session。
+- `/dsh new`：为已存在的本地目录确保工作区、新建 session，权限固定为读写本工作区（`workspace-write`）并自动绑定；路径必填。
+- 绑定后主人消息进入 Harness Agent，最终文字回微信；未绑定仍走人设 + 原模型客户端。
+- 凭证读 `~/.dsh/.credentials.yaml`（或 `DSH_AUTH_SECRET` / 设置里的地址）；只连本机 loopback。Cursor 后端一期为 stub。
+- 使用说明见 `docs/连接IDE.md`（含配置、指令、排错与 Cursor 预留说明）。
+
 ### 新增 · 项目静态网站
 
 - 新增独立静态官网与 GitHub Pages 工作流，支持响应式布局、明暗主题及减少动画偏好。
